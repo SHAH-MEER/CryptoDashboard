@@ -6,9 +6,10 @@ import nltk
 import plotly.express as px
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import ssl # For handling NLTK download context issues if they arise
+import utils # Import the utility module
 
 # Set page config as the first Streamlit command
-st.set_page_config(page_title="News & Sentiment", page_icon="📰", layout="wide")
+st.set_page_config(page_title="Crypto News & Sentiment", page_icon="📰", layout="wide")
 
 # --- NLTK Setup --- 
 # Attempt to set unverified context for NLTK download (may be needed on some systems)
@@ -43,7 +44,7 @@ analyzer = get_sentiment_analyzer()
 
 st.title("📰 News & Sentiment Analysis")
 st.caption("Powered by NewsAPI.org")
-st.markdown("Fetches recent news articles about cryptocurrencies (or any topic) and analyzes their sentiment.")
+st.markdown("Fetches recent news articles and analyzes their sentiment using NewsAPI.org and VADER.")
 
 # --- Helper Functions ---
 @st.cache_data(ttl=3600) # Cache news for 1 hour
@@ -107,7 +108,7 @@ def analyze_sentiment(text):
     return {'compound': compound_score, 'label': label}
 
 # --- Sidebar --- 
-st.sidebar.header("📰 News Search Options")
+st.sidebar.header("⚙️ News Options")
 
 # Search Term
 search_query = st.sidebar.text_input("Search Topic (e.g., Bitcoin, Ethereum):", "Bitcoin")

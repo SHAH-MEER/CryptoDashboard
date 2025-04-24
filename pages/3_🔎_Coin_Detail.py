@@ -2,135 +2,26 @@ import streamlit as st
 import requests
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go # Import graph_objects for Candlestick
+import plotly.graph_objects as go
 from datetime import datetime
 from plotly.subplots import make_subplots
+import utils # Import the utility module
 
 st.set_page_config(page_title="Coin Detail", page_icon="🔎", layout="wide")
 
 st.title("🔎 Coin Detail Page")
 
 # --- Helper Functions ---
-
-# Cache the list of all coins from CoinGecko
-@st.cache_data(ttl=3600 * 6) # Cache for 6 hours
-def get_coin_list():
-    url = "https://api.coingecko.com/api/v3/coins/list"
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        # Create a mapping from lowercase name to id for easier lookup
-        return {coin['name'].lower(): coin['id'] for coin in data}
-    except requests.exceptions.RequestException as e:
-        st.error(f"Error fetching coin list: {e}")
-        return {}
-    except Exception as e: # Catch potential JSON errors or others
-        st.error(f"An error occurred processing the coin list: {e}")
-        return {}
-
-# Fetch detailed data for a specific coin ID
-@st.cache_data(ttl=300) # Cache for 5 minutes
-def get_coin_details(coin_id):
-    # Include localization=false and sparkline=true for more data
-    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false&sparkline=true"
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.HTTPError as http_err:
-        if response.status_code == 429:
-            st.error(f"Rate limit hit fetching details for {coin_id}. Please wait.")
-        elif response.status_code == 404:
-             st.error(f"Could not find details for coin ID: {coin_id}. It might be delisted or invalid.")
-        else:
-            st.error(f"HTTP error fetching details for {coin_id}: {http_err}")
-        return None
-    except requests.exceptions.RequestException as e:
-        st.error(f"Error fetching details for {coin_id}: {e}")
-        return None
-    except Exception as e:
-         st.error(f"An error occurred processing details for {coin_id}: {e}")
-         return None
-
-# Re-use historical data function (could be moved to a utility file later)
-@st.cache_data(ttl=7200)
-def get_historical_data(coin_id, currency, days):
-    # Fetch price and volume data
-    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency={currency}&days={days}"
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        prices = data.get("prices", [])
-        volumes = data.get("total_volumes", []) # Get volumes
-        
-        df_prices = pd.DataFrame(prices, columns=["timestamp", "price"])
-        df_volumes = pd.DataFrame(volumes, columns=["timestamp", "volume"])
-        
-        # Merge prices and volumes on timestamp
-        df_hist = pd.merge(df_prices, df_volumes, on="timestamp", how="inner")
-        
-        df_hist["date"] = pd.to_datetime(df_hist["timestamp"], unit="ms")
-        df_hist = df_hist.drop_duplicates(subset=['date']).sort_values(by='date')
-        # Keep date for plotting, maybe index later if needed by other funcs
-        df_hist = df_hist[["date", "price", "volume"]]
-        return df_hist 
-    except requests.exceptions.HTTPError as http_err:
-        status_code = response.status_code
-        if status_code == 429:
-             st.warning(f"Rate limit hit fetching historical data. Please wait.")
-        elif status_code == 401:
-             st.error(f"Error 401: Unauthorized. Fetching 'max' historical data may require a paid CoinGecko API key.")
-        elif status_code == 404:
-            st.warning(f"Historical data not found for this period ({status_code}).")
-        else:
-             st.warning(f"Could not fetch historical data (HTTP Error {status_code}).")
-        return pd.DataFrame(columns=["date", "price", "volume"])
-    except requests.exceptions.RequestException as e:
-        st.warning(f"Error fetching historical data: {e}")
-        return pd.DataFrame(columns=["date", "price", "volume"])
-    except KeyError:
-        st.warning("Historical data format unexpected or missing.")
-        return pd.DataFrame(columns=["date", "price", "volume"])
-
-# New function to fetch OHLC data for candlestick charts
-@st.cache_data(ttl=7200)
-def get_ohlc_data(coin_id, currency, days):
-    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/ohlc?vs_currency={currency}&days={days}"
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        # OHLC data format: [timestamp, open, high, low, close]
-        df_ohlc = pd.DataFrame(data, columns=['timestamp', 'open', 'high', 'low', 'close'])
-        df_ohlc['date'] = pd.to_datetime(df_ohlc['timestamp'], unit='ms')
-        # Ensure numeric types
-        for col in ['open', 'high', 'low', 'close']:
-             df_ohlc[col] = pd.to_numeric(df_ohlc[col], errors='coerce')
-        df_ohlc = df_ohlc.dropna()
-        return df_ohlc
-    except requests.exceptions.HTTPError as http_err:
-        status_code = response.status_code
-        if status_code == 429:
-             st.warning(f"Rate limit hit fetching OHLC data. Please wait.")
-        elif status_code == 401:
-             st.error(f"Error 401: Unauthorized. Fetching 'max' OHLC data may require a paid API key.")
-        elif status_code == 404:
-            st.warning(f"OHLC data not found for this period ({status_code}).")
-        else:
-             st.warning(f"Could not fetch OHLC data (HTTP Error {status_code}).")
-        return pd.DataFrame(columns=['timestamp', 'date', 'open', 'high', 'low', 'close'])
-    except requests.exceptions.RequestException as e:
-        st.warning(f"Error fetching OHLC data: {e}")
-        return pd.DataFrame(columns=['timestamp', 'date', 'open', 'high', 'low', 'close'])
-    except Exception as e:
-        st.error(f"An error occurred processing OHLC data: {e}")
-        return pd.DataFrame(columns=['timestamp', 'date', 'open', 'high', 'low', 'close'])
+# Functions moved to utils.py:
+# get_coin_list()
+# get_coin_details(coin_id)
+# get_historical_data(coin_id, currency, days)
+# get_ohlc_data(coin_id, currency, days)
 
 # --- Sidebar ---
 st.sidebar.header("⚙️ Coin Selection")
-coin_map = get_coin_list()
+# Call function from utils module
+coin_map = utils.get_coin_list()
 
 selected_coin_id = None
 selected_coin_name = None
@@ -144,13 +35,16 @@ if coin_map:
         default_index = all_coin_names.index(default_coin_display_name)
     except ValueError:
         default_index = 0 # Default to the first coin if Bitcoin isn't found
-        st.sidebar.warning("Could not find 'Bitcoin' in the coin list, defaulting to the first entry.")
-        
+        if all_coin_names: # Only warn if list is not empty
+            st.sidebar.warning(f"Could not find '{default_coin_display_name}' in the coin list, defaulting to '{all_coin_names[0]}'.")
+        else:
+            st.sidebar.error("Coin list is empty.")
+            
     # Use a single selectbox with all coin names
     selected_coin_name = st.sidebar.selectbox(
         "Select Coin (Type to search)", 
         options=all_coin_names, 
-        index=default_index,
+        index=default_index if all_coin_names else None, # Prevent index error if list is empty
         key="detail_coin_select_all"
     )
     
@@ -158,7 +52,7 @@ if coin_map:
         # Get the ID from the original map using the lowercase version of the selected name
         selected_coin_id = coin_map.get(selected_coin_name.lower())
     else:
-        selected_coin_id = None # Should not happen with selectbox unless list is empty
+        selected_coin_id = None 
         
     # Currency selection for market data
     currency = st.sidebar.selectbox(
@@ -168,15 +62,33 @@ if coin_map:
     )
     currency_upper = currency.upper()
 
+    # Chart Type Selection
+    chart_type = st.sidebar.radio(
+        "Select Chart Type",
+        ("Line Chart", "Candlestick Chart"),
+        key="detail_chart_type"
+    )
+    
+    # Timeframe Selection
+    days_history = st.sidebar.selectbox(
+        "Select Timeframe (Days)", 
+        options=[7, 30, 90, 180, 365], # Added 7 days
+        index=1, # Default to 30 days
+        key="detail_days_history"
+    )
+
 else:
     st.sidebar.error("Could not load coin list from API.")
     currency = "usd"
     currency_upper = "USD"
+    chart_type = "Line Chart"
+    days_history = 30
 
 # --- Main Page ---
 
 if selected_coin_id and selected_coin_name:
-    details = get_coin_details(selected_coin_id)
+    # Call function from utils module
+    details = utils.get_coin_details(selected_coin_id)
 
     if details:
         # --- Header (Remains outside tabs) ---
@@ -197,144 +109,188 @@ if selected_coin_id and selected_coin_name:
             st.subheader("Key Market Data")
             market_data = details.get('market_data', {})
             
-            # Use selected currency
-            price = market_data.get('current_price', {}).get(currency, 0)
-            ath = market_data.get('ath', {}).get(currency, 0)
-            ath_change = market_data.get('ath_change_percentage', {}).get(currency, 0)
-            ath_date_str = market_data.get('ath_date', {}).get(currency, '')
-            atl = market_data.get('atl', {}).get(currency, 0)
-            atl_change = market_data.get('atl_change_percentage', {}).get(currency, 0)
-            atl_date_str = market_data.get('atl_date', {}).get(currency, '')
-            mcap = market_data.get('market_cap', {}).get(currency, 0)
-            vol = market_data.get('total_volume', {}).get(currency, 0)
-            high_24h = market_data.get('high_24h', {}).get(currency, 0)
-            low_24h = market_data.get('low_24h', {}).get(currency, 0)
-            price_change_24h = market_data.get('price_change_percentage_24h_in_currency', {}).get(currency, 0)
+            # Use selected currency and safely get data
+            def get_market_metric(metric_key, default=0):
+                return market_data.get(metric_key, {}).get(currency, default)
             
-            # Safely format dates
-            try:
-                ath_date = pd.to_datetime(ath_date_str).strftime('%Y-%m-%d') if ath_date_str else 'N/A'
-            except: ath_date = 'N/A'
-            try:
-                atl_date = pd.to_datetime(atl_date_str).strftime('%Y-%m-%d') if atl_date_str else 'N/A'
-            except: atl_date = 'N/A'
+            def format_currency(value, default_val=0):
+                 val = get_market_metric(value, default_val)
+                 if val is None or val == default_val: return 'N/A'
+                 # Basic check for large numbers to maybe format differently later?
+                 if abs(val) > 1e6: return f"{currency_upper} {val:,.0f}"
+                 return f"{currency_upper} {val:,.4f}" # Default to 4 decimal places for smaller prices
+                 
+            def format_percentage(value, default_val=0):
+                val = get_market_metric(value, default_val)
+                return f"{val:.2f}%" if val is not None else 'N/A'
 
-            # Display metrics
-            m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-            m_col1.metric(f"Price ({currency_upper})", f"{price:,.4f}", f"{price_change_24h:.2f}% (24h)")
-            m_col2.metric(f"Market Cap ({currency_upper})", f"{mcap:,.0f}")
-            m_col3.metric(f"24h Volume ({currency_upper})", f"{vol:,.0f}")
-            m_col4.metric(f"24h High/Low ({currency_upper})", f"{high_24h:,.2f} / {low_24h:,.2f}")
-            m_col1a, m_col2a = st.columns(2)
-            with m_col1a:
-                 st.metric(f"All-Time High ({currency_upper})", f"{ath:,.2f} ({ath_date})", f"{ath_change:.2f}%")
-            with m_col2a:
-                 st.metric(f"All-Time Low ({currency_upper})", f"{atl:,.2f} ({atl_date})", f"{atl_change:.2f}%")
-            
-            st.divider()
+            def format_date(metric_key, default_val=''):
+                date_str = get_market_metric(metric_key, default_val)
+                if not date_str: return 'N/A'
+                try:
+                    return pd.to_datetime(date_str).strftime('%Y-%m-%d %H:%M')
+                except:
+                    return 'N/A'
 
-            # Recent Performance
-            st.subheader("Recent Price Performance")
-            perf_cols = st.columns(5)
-            perf_data = {
-                '1h': market_data.get('price_change_percentage_1h_in_currency', {}).get(currency, None),
-                '24h': market_data.get('price_change_percentage_24h_in_currency', {}).get(currency, None),
-                '7d': market_data.get('price_change_percentage_7d_in_currency', {}).get(currency, None),
-                '14d': market_data.get('price_change_percentage_14d_in_currency', {}).get(currency, None),
-                '30d': market_data.get('price_change_percentage_30d_in_currency', {}).get(currency, None)
-            }
-            perf_labels = {'1h':'1 Hour', '24h':'24 Hours', '7d':'7 Days', '14d':'14 Days', '30d':'30 Days'}
-            i = 0
-            for period, value in perf_data.items():
-                if value is not None:
-                    perf_cols[i].metric(label=perf_labels[period], value=f"{value:.2f}%")
-                else:
-                     perf_cols[i].metric(label=perf_labels[period], value="N/A")
-                i += 1
-                if i >= len(perf_cols): break
+            col_m1, col_m2, col_m3 = st.columns(3)
+            col_m1.metric("Current Price", format_currency('current_price'), format_percentage('price_change_percentage_24h_in_currency') + " (24h)")
+            col_m2.metric("Market Cap", format_currency('market_cap'), f"Rank #{details.get('market_cap_rank', 'N/A')}")
+            col_m3.metric("24h Volume", format_currency('total_volume'))
+
+            col_hilo1, col_hilo2 = st.columns(2)
+            col_hilo1.metric("24h High", format_currency('high_24h'))
+            col_hilo2.metric("24h Low", format_currency('low_24h'))
 
             st.divider()
+            st.subheader("Performance")
+            perf_col1, perf_col2, perf_col3, perf_col4 = st.columns(4)
+            perf_col1.metric("7d Change", format_percentage('price_change_percentage_7d_in_currency'))
+            perf_col2.metric("30d Change", format_percentage('price_change_percentage_30d_in_currency'))
+            perf_col3.metric("1y Change", format_percentage('price_change_percentage_1y_in_currency'))
+            # Sparkline (7d) - extract from details if available
+            sparkline_data = market_data.get('sparkline_7d', {}).get('price')
+            if sparkline_data:
+                 spark_df = pd.DataFrame({'price': sparkline_data})
+                 spark_df['index'] = range(len(spark_df)) # Add index for plotting
+                 fig_spark = px.line(spark_df, x='index', y='price', height=60)
+                 fig_spark.update_layout(showlegend=False, margin=dict(l=0,r=0,t=0,b=0), yaxis_visible=False, xaxis_visible=False)
+                 perf_col4.markdown("**7d Trend**")
+                 perf_col4.plotly_chart(fig_spark, use_container_width=True)
+
+            st.divider()
+            st.subheader("All-Time High / Low")
+            col_ath1, col_ath2 = st.columns(2)
+            col_ath1.metric("All-Time High", f"{format_currency('ath')}", f"{format_percentage('ath_change_percentage')} from ATH")
+            col_ath1.caption(f"Date: {format_date('ath_date')}")
+            col_ath2.metric("All-Time Low", f"{format_currency('atl')}", f"{format_percentage('atl_change_percentage')} from ATL")
+            col_ath2.caption(f"Date: {format_date('atl_date')}")
             
-            # Supply Info
+            st.divider()
             st.subheader("Supply Information")
-            circ_supply = market_data.get('circulating_supply', None)
-            total_supply = market_data.get('total_supply', None)
-            max_supply = market_data.get('max_supply', None)
-            supply_cols = st.columns(2)
-            supply_cols[0].metric("Circulating Supply", f"{circ_supply:,.0f}" if circ_supply is not None else "N/A")
-            supply_cols[0].metric("Total Supply", f"{total_supply:,.0f}" if total_supply is not None else "N/A")
-            supply_cols[0].metric("Max Supply", f"{max_supply:,.0f}" if max_supply is not None else "N/A")
-            if circ_supply is not None and (total_supply is not None or max_supply is not None):
-                supply_limit = max_supply if max_supply is not None and max_supply > 0 else total_supply
-                if supply_limit is not None and supply_limit > 0:
-                    remaining_supply = supply_limit - circ_supply
-                    labels = ['Circulating', 'Not Circulating']
-                    values = [circ_supply, remaining_supply if remaining_supply > 0 else 0]
-                    fig_supply = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.4, 
-                                                       marker_colors=['#1f77b4', 'lightgrey'], pull=[0, 0.05])])
-                    fig_supply.update_layout(title_text=f'Supply Distribution (vs. {"Max" if max_supply else "Total"} Supply)',
-                                            annotations=[dict(text='Supply', x=0.5, y=0.5, font_size=16, showarrow=False)],
-                                            showlegend=True, height=300, margin=dict(l=10, r=10, t=50, b=10))
-                    supply_cols[1].plotly_chart(fig_supply, use_container_width=True)
-                else: supply_cols[1].info("Cannot generate supply chart (No valid Total/Max supply).")
-            else: supply_cols[1].info("Not enough supply data to generate chart.")
+            circ_supply = market_data.get('circulating_supply')
+            total_supply = market_data.get('total_supply')
+            max_supply = market_data.get('max_supply')
+            
+            supply_data = {}
+            if circ_supply is not None: supply_data['Circulating'] = circ_supply
+            if total_supply is not None: supply_data['Total'] = total_supply
+            if max_supply is not None: supply_data['Max'] = max_supply
+            
+            supply_col1, supply_col2 = st.columns([0.6, 0.4])
+            with supply_col1:
+                if circ_supply is not None: st.metric("Circulating Supply", f"{circ_supply:,.0f}")
+                if total_supply is not None: st.metric("Total Supply", f"{total_supply:,.0f}")
+                if max_supply is not None: st.metric("Max Supply", f"{max_supply:,.0f}")
+                if not supply_data: st.info("Supply data not available.")
+
+            with supply_col2:
+                 if supply_data:
+                     # Calculate relative supply if total or max is available
+                     if total_supply is not None and circ_supply is not None and total_supply > 0:
+                         circ_pct_of_total = (circ_supply / total_supply) * 100
+                         st.progress(int(circ_pct_of_total), text=f"{circ_pct_of_total:.1f}% of Total Supply Circulating")
+                     elif max_supply is not None and circ_supply is not None and max_supply > 0:
+                         circ_pct_of_max = (circ_supply / max_supply) * 100
+                         st.progress(int(circ_pct_of_max), text=f"{circ_pct_of_max:.1f}% of Max Supply Circulating")
+                     
+                     # Simple Pie Chart for Supply (if multiple values exist)
+                     if len(supply_data) > 1:
+                         # Use only Circulating vs (Total - Circulating) or (Max - Circulating) for pie
+                         pie_data = {}
+                         if circ_supply is not None: pie_data['Circulating'] = circ_supply
+                         
+                         non_circulating_label = "Non-Circulating"
+                         if total_supply is not None and circ_supply is not None and total_supply > circ_supply:
+                              pie_data[non_circulating_label] = total_supply - circ_supply
+                         elif max_supply is not None and circ_supply is not None and max_supply > circ_supply:
+                              pie_data[non_circulating_label] = max_supply - circ_supply
+                              non_circulating_label = "Locked/Unreleased" # Better label if max exists
+                         
+                         if len(pie_data) > 1:
+                             supply_pie_df = pd.DataFrame(pie_data.items(), columns=['Category', 'Amount'])
+                             fig_supply_pie = px.pie(supply_pie_df, values='Amount', names='Category', title='Supply Distribution',
+                                                    height=200, hole=0.4)
+                             fig_supply_pie.update_layout(showlegend=False, margin=dict(l=0,r=0,t=30,b=0))
+                             fig_supply_pie.update_traces(textinfo='percent+label')
+                             st.plotly_chart(fig_supply_pie, use_container_width=True)
 
         # --- Tab 2: Charts ---
         with tab2:
-            # 7-Day Sparkline
-            st.subheader("7-Day Price Trend (Sparkline)")
-            sparkline_data = market_data.get('sparkline_7d', {}).get('price')
-            if sparkline_data:
-                spark_df = pd.DataFrame({'price': sparkline_data})
-                spark_df['time'] = pd.to_datetime(range(len(sparkline_data)), unit='h', origin=pd.Timestamp.now() - pd.Timedelta(days=7))
-                fig_spark = px.line(spark_df, x='time', y='price', title=f"{details.get('name', 'N/A')} 7d Sparkline")
-                fig_spark.update_layout(xaxis_title=None, yaxis_title=None, showlegend=False)
-                st.plotly_chart(fig_spark, use_container_width=True)
-            else: st.info("7-day sparkline data not available.")
-
-            st.divider()
-
-            # Historical Chart Section
-            st.subheader("Historical Price & Volume")
-            chart_type = st.radio("Select Chart Type", ["Line Chart", "Candlestick Chart"], key="detail_chart_type", horizontal=True)
-            days_history_detail = st.selectbox("Select Timeframe (Days)", options=[7, 30, 90, 365], index=1, key="detail_days_history")
+            st.subheader(f"{selected_coin_name} Price Chart ({days_history} Days)")
             
-            # Fetch appropriate data (OHLC for candlestick, Price/Volume for Line)
             if chart_type == "Line Chart":
-                hist_data = get_historical_data(selected_coin_id, currency, days=str(days_history_detail))
-            else: # Candlestick Chart
-                hist_data = get_ohlc_data(selected_coin_id, currency, days=str(days_history_detail))
-                # Also fetch volume data separately for candlestick as OHLC endpoint doesn't include it
-                volume_data = get_historical_data(selected_coin_id, currency, days=str(days_history_detail))[['date', 'volume']]
-                if not volume_data.empty:
-                    # Merge volume into hist_data for consistent access
-                    hist_data = pd.merge(hist_data, volume_data, on='date', how='left')
+                # Fetch historical data (Price and Volume) using utils function
+                hist_df = utils.get_historical_data(selected_coin_id, currency, days=days_history)
+                
+                if not hist_df.empty and 'price' in hist_df.columns and 'volume' in hist_df.columns:
+                    # Create figure with secondary y-axis
+                    fig = make_subplots(specs=[{"secondary_y": True}])
 
-            if not hist_data.empty:
-                # Create figure with secondary y-axis for volume
-                fig_hist = make_subplots(specs=[[{"secondary_y": True}]])
-                
-                # Add Price Trace (Line or Candlestick)
-                if chart_type == "Line Chart":
-                    fig_hist.add_trace(go.Scatter(x=hist_data["date"], y=hist_data["price"], name=f"Price ({currency_upper})", line=dict(color='blue')), secondary_y=False)
-                else: # Candlestick
-                    fig_hist.add_trace(go.Candlestick(x=hist_data['date'], open=hist_data['open'], high=hist_data['high'], low=hist_data['low'], close=hist_data['close'], name='Price (OHLC)'), secondary_y=False)
-                    fig_hist.update_layout(xaxis_rangeslider_visible=False)
-                
-                # Add Volume Trace (Bar Chart on secondary axis)
-                if 'volume' in hist_data.columns and not hist_data['volume'].isnull().all():
-                    fig_hist.add_trace(go.Bar(x=hist_data["date"], y=hist_data["volume"], name=f"Volume ({currency_upper})", marker_color='rgba(128,128,128,0.5)'), secondary_y=True)
-                    fig_hist.update_yaxes(title_text=f"Volume ({currency_upper})", secondary_y=True, showgrid=False)
-                
-                # Update layout
-                fig_hist.update_layout(
-                    title_text=f"{details.get('name', 'N/A')} Price & Volume ({days_history_detail} Days)",
-                    xaxis_title='Date'
-                )
-                fig_hist.update_yaxes(title_text=f"Price ({currency_upper})", secondary_y=False)
-                st.plotly_chart(fig_hist, use_container_width=True)
-            else:
-                st.warning(f"Could not display historical data for {details.get('name', 'N/A')}.")
+                    # Add Price trace
+                    fig.add_trace(
+                        go.Scatter(x=hist_df['date'], y=hist_df['price'], name=f"Price ({currency_upper})"),
+                        secondary_y=False,
+                    )
+
+                    # Add Volume trace
+                    fig.add_trace(
+                        go.Bar(x=hist_df['date'], y=hist_df['volume'], name=f"Volume ({currency_upper})", opacity=0.4),
+                        secondary_y=True,
+                    )
+
+                    # Set titles and labels
+                    fig.update_layout(
+                        title_text=f"{selected_coin_name} Price and Volume ({currency_upper})",
+                        xaxis_title="Date",
+                        legend_title="Metric"
+                    )
+                    fig.update_yaxes(title_text="<b>Price ({currency_upper})</b>", secondary_y=False)
+                    fig.update_yaxes(title_text="<b>Volume ({currency_upper})</b>", secondary_y=True, showgrid=False)
+
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("Could not fetch or process historical price/volume data for the line chart.")
+
+            elif chart_type == "Candlestick Chart":
+                # Fetch OHLC data using utils function
+                ohlc_df = utils.get_ohlc_data(selected_coin_id, currency, days=days_history)
+                # Fetch volume data separately for overlay (OHLC endpoint doesn't include volume)
+                hist_df_vol = utils.get_historical_data(selected_coin_id, currency, days=days_history)
+
+                if not ohlc_df.empty and 'open' in ohlc_df.columns:
+                    # Create figure with secondary y-axis
+                    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+                                       vertical_spacing=0.1, row_heights=[0.7, 0.3]) # Allocate more space for price
+
+                    # Add Candlestick trace to the first row
+                    fig.add_trace(go.Candlestick(x=ohlc_df['date'],
+                                    open=ohlc_df['open'], high=ohlc_df['high'],
+                                    low=ohlc_df['low'], close=ohlc_df['close'],
+                                    name="Price (OHLC)"), row=1, col=1)
+
+                    # Add Volume trace to the second row
+                    if not hist_df_vol.empty and 'volume' in hist_df_vol.columns:
+                        fig.add_trace(go.Bar(x=hist_df_vol['date'], y=hist_df_vol['volume'], name="Volume", marker_color='rgba(100,149,237,0.5)'), row=2, col=1)
+                         # Update y-axis title for volume
+                        fig.update_yaxes(title_text="Volume", row=2, col=1)
+                    else:
+                        st.warning("Volume data could not be fetched for candlestick overlay.")
+
+                    # Update layout
+                    fig.update_layout(
+                        title=f"{selected_coin_name} Candlestick Chart ({currency_upper})",
+                        xaxis_title="Date",
+                        yaxis_title=f"Price ({currency_upper})",
+                        xaxis_rangeslider_visible=False, # Hide rangeslider for cleaner look
+                        height=600 # Increase height for two rows
+                    )
+                    # Remove gap between rows
+                    fig.update_layout(xaxis2_showticklabels=True) # Ensure date labels show on bottom chart
+
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("Could not fetch or process OHLC data for the candlestick chart.")
+
 
         # --- Tab 3: Info & Links ---
         with tab3:
@@ -343,6 +299,7 @@ if selected_coin_id and selected_coin_name:
             description = details.get('description', {}).get('en', 'No description available.')
             with st.expander("Read Description...", expanded=False):
                 import re
+                # Basic regex to remove HTML tags - might need refinement for complex HTML
                 clean_desc = re.sub('<[^<]+?>', '', description) if description else 'No description available.'
                 st.markdown(clean_desc)
 
@@ -351,26 +308,44 @@ if selected_coin_id and selected_coin_name:
             # Links
             st.subheader("Official Links")
             links = details.get('links', {})
-            homepage = links.get('homepage', [])[0] if links.get('homepage') else None
-            blockchain_explorers = links.get('blockchain_site', [])[:3]
-            twitter = links.get('twitter_screen_name', None)
-            subreddit = links.get('subreddit_url', None)
-            link_cols = st.columns(4)
+            # Safely get first homepage link if list exists
+            homepage = links.get('homepage', [None])[0] 
+            # Get up to 3 blockchain explorers, filtering out empty strings
+            blockchain_explorers = [url for url in links.get('blockchain_site', []) if url][:3] 
+            twitter_username = links.get('twitter_screen_name', None)
+            subreddit_url = links.get('subreddit_url', None)
+            
+            link_cols = st.columns(4) # Create columns for buttons
             if homepage: link_cols[0].link_button("Homepage", homepage)
-            if twitter: link_cols[1].link_button("Twitter", f"https://twitter.com/{twitter}")
-            if subreddit: link_cols[2].link_button("Reddit", subreddit)
+            if twitter_username: link_cols[1].link_button("Twitter", f"https://twitter.com/{twitter_username}")
+            if subreddit_url: link_cols[2].link_button("Reddit", subreddit_url)
+            # Use the 4th column for an expander if explorers exist
             if blockchain_explorers:
-                 with st.expander("Blockchain Explorers"):
+                 with link_cols[3].expander("Explorers"):
                      for i, explorer in enumerate(blockchain_explorers):
-                         if explorer: st.link_button(f"Explorer {i+1}", explorer)
+                         st.link_button(f"Explorer {i+1}", explorer)
+                         
+            # Display other links if available
+            other_links = {
+                 "Official Forum": links.get('official_forum_url', [None])[0],
+                 "Chat": links.get('chat_url', [None])[0],
+                 "Announcement": links.get('announcement_url', [None])[0],
+                 # Add more as needed, e.g., Facebook, Telegram
+            }
+            other_links_filtered = {name: url for name, url in other_links.items() if url}
+            if other_links_filtered:
+                 st.divider()
+                 st.markdown("**Other Links:**")
+                 for name, url in other_links_filtered.items():
+                     st.link_button(name, url)
 
     else:
-        st.error(f"Could not retrieve details for the selected coin ID: {selected_coin_id}")
+        st.error(f"Could not retrieve details for the selected coin ID: {selected_coin_id}. The coin might be invalid or the API unavailable.")
 
 elif not coin_map:
-     st.error("Application cannot function without the coin list. Please check API status.")
+     st.error("Application cannot function without the coin list. Please check API status or try again later.")
 elif selected_coin_id is None and selected_coin_name:
-    # Handle case where selected name didn't map to an ID (should be rare)
-    st.error(f"Could not find ID for selected coin: {selected_coin_name}")
-else:
+    # Handle case where selected name didn't map to an ID (should be rare with current setup)
+    st.error(f"Could not find a valid ID for the selected coin: {selected_coin_name}")
+else: # No coin selected yet, and coin_map was loaded successfully
     st.info("⬅️ Please select a coin from the sidebar to view its details.") 
