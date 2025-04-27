@@ -325,11 +325,15 @@ if selected_coin_id and selected_coin_name:
                      for i, explorer in enumerate(blockchain_explorers):
                          st.link_button(f"Explorer {i+1}", explorer)
                          
+            # Helper function to safely get the first item of a list or None
+            def safe_first(val):
+                return val[0] if val and len(val) > 0 else None
+
             # Display other links if available
             other_links = {
-                 "Official Forum": links.get('official_forum_url', [None])[0],
-                 "Chat": links.get('chat_url', [None])[0],
-                 "Announcement": links.get('announcement_url', [None])[0],
+                 "Official Forum": safe_first(links.get('official_forum_url', [])),
+                 "Chat": safe_first(links.get('chat_url', [])),
+                 "Announcement": safe_first(links.get('announcement_url', [])),
                  # Add more as needed, e.g., Facebook, Telegram
             }
             other_links_filtered = {name: url for name, url in other_links.items() if url}
