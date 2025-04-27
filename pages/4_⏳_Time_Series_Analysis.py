@@ -76,7 +76,7 @@ if coin_map:
     days_history = st.sidebar.selectbox(
         "Select Timeframe (Days)", 
         options=[30, 90, 180, 365], 
-        index=1, # Default to 90 days
+        index=2, # Default to 90 days
         key="tsa_days_history"
     )
     

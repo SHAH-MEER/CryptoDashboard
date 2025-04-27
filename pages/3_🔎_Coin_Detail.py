@@ -224,7 +224,7 @@ if selected_coin_id and selected_coin_name:
                 
                 if not hist_df.empty and 'price' in hist_df.columns and 'volume' in hist_df.columns:
                     # Create figure with secondary y-axis
-                    fig = make_subplots(specs=[{"secondary_y": True}])
+                    fig = make_subplots(rows=1, cols=1, specs=[[{"secondary_y": True}]])
 
                     # Add Price trace
                     fig.add_trace(
